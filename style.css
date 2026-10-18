@@ -259,3 +259,9 @@ details summary { cursor: pointer; }
 .who-why b { color: var(--text); }
 @media (max-width: 420px) { .who-presets { grid-template-columns: repeat(5, 1fr); } }
 .badge.fx { background: var(--fx-bg); color: var(--fx-fg); border-color: transparent; font-weight: 600; }
+.qf-bar .conds { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 60%; min-width: 0; }
+.qf-bar > span:first-child { flex: none; }
+.cond { border: 1px solid var(--accent); color: var(--accent); background: var(--card); border-radius: 999px; padding: 3px 10px; font-size: 13px; cursor: pointer; }
+.cond:hover { background: var(--accent); color: #fff; }
+.empty .hints { margin-top: 14px; display: grid; gap: 8px; justify-items: center; }
+.empty .hints p { margin: 0; font-size: 14px; }

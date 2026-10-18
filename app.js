@@ -203,6 +203,29 @@ function matchQf(p, qf) {
   }
   return Object.values(groups).every((fs) => fs.some((f) => p._f.has(f)));
 }
+/** 目前所有生效中的條件（速查＋篩選面板＋搜尋字＋年齡），每個都附「移除」動作 */
+function activeConds() {
+  const c = [];
+  const q = S.q;
+  if (q.text.trim()) c.push({ label: `搜尋「${q.text.trim()}」`, drop: () => { S.q.text = ""; } });
+  if (S.profile.age !== "") c.push({ label: `被保險人 ${S.profile.age} 歲`, drop: () => { S.profile.age = ""; } });
+  S.qf.facets.forEach((f) => c.push({ label: FACETS[f].label, drop: () => { S.qf.facets = S.qf.facets.filter((x) => x !== f); } }));
+  S.qf.companies.forEach((k) => c.push({ label: S.meta.companies[k].short, drop: () => { S.qf.companies = S.qf.companies.filter((x) => x !== k); } }));
+  q.companies.forEach((k) => c.push({ label: `篩選：${S.meta.companies[k].short}`, drop: () => { S.q.companies = S.q.companies.filter((x) => x !== k); } }));
+  q.tags.forEach((t) => c.push({ label: `篩選：${t}`, drop: () => { S.q.tags = S.q.tags.filter((x) => x !== t); } }));
+  if (q.contract) c.push({ label: `篩選：${q.contract}`, drop: () => { S.q.contract = ""; } });
+  if (q.onlyRates) c.push({ label: "篩選：只看可試算保費", drop: () => { S.q.onlyRates = false; } });
+  return c;
+}
+/** 暫時移除某條件後的筆數 */
+function countWithout(base, cond) {
+  const snap = JSON.stringify({ q: S.q, qf: S.qf, age: S.profile.age });
+  cond.drop();
+  const n = filtered(base).length;
+  const o = JSON.parse(snap); S.q = o.q; S.qf = o.qf; S.profile.age = o.age;
+  return n;
+}
+
 const qfActive = () => S.qf.facets.length || S.qf.companies.length;
 function qfLabel() {
   return [...S.qf.facets.map((f) => FACETS[f].label), ...S.qf.companies.map((c) => S.meta.companies[c].short)].join("、");
@@ -312,21 +335,33 @@ function toolbar(showSearch = true, showTerm = false) {
 const filterActive = () => S.q.companies.length || S.q.tags.length || S.q.contract || S.q.onlyRates || !S.q.hideClauses || S.q.showStopped;
 
 function renderList(base, title) {
+  const conds = activeConds();
   const list = filtered(base);
+  const hidden = S.unknownAgeHidden;
+  const hints = list.length ? [] : conds.map((c, i) => [i, countWithout(base, c)]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  S.unknownAgeHidden = hidden;
   const shown = list.slice(0, S.limit);
   $("#view").innerHTML = `${toolbar()}
     ${title ? `<div class="count">${title}</div>` : ""}
-    ${qfActive() ? `<div class="qf-bar"><span>速查條件：<b>${esc(qfLabel())}</b></span><button class="btn" id="qfEdit">修改</button><button class="btn" id="qfClear">清除</button></div>` : ""}
+    ${conds.length ? `<div class="qf-bar"><span>目前條件：</span><span class="conds">${conds.map((c, i) => `<button class="cond" data-cond="${i}" title="移除這個條件">${esc(c.label)} ✕</button>`).join("")}</span>${qfActive() ? '<button class="btn" id="qfEdit">修改速查</button>' : ""}<button class="btn" id="qfClear">全部清除</button></div>` : ""}
     <div class="count">共 ${list.length.toLocaleString()} 筆${S.profile.age !== "" ? `（${esc(S.profile.age)} 歲可投保）` : ""}
       ${S.profile.age !== "" && S.unknownAgeHidden ? `<span class="note">・另有 ${S.unknownAgeHidden} 項官網未標示承保年齡，未列入</span> <button class="btn" id="showUnknown" style="padding:2px 8px;font-size:12px">顯示</button>` : ""}
       ${S.profile.age !== "" && S.q.showUnknownAge ? `<button class="btn" id="hideUnknown" style="padding:2px 8px;font-size:12px">隱藏未標示年齡的商品</button>` : ""}</div>
-    ${shown.length ? `<div class="grid" id="grid">${shown.map(card).join("")}</div>` : '<div class="empty">沒有符合條件的商品</div>'}
+    ${shown.length ? `<div class="grid" id="grid">${shown.map(card).join("")}</div>` : `<div class="empty">沒有符合條件的商品${hints.length ? `<div class="hints"><p>試試看移除其中一個條件：</p>${hints.map(([i, n]) => `<button class="btn" data-cond="${i}">移除「${esc(conds[i].label)}」→ ${n} 筆</button>`).join("")}</div>` : ""}</div>`}
     ${list.length > S.limit ? '<button class="btn more" id="more">顯示更多</button>' : ""}`;
   bindToolbar(() => renderList(base, title));
   $("#more")?.addEventListener("click", () => { S.limit += 60; renderList(base, title); });
   $("#showUnknown")?.addEventListener("click", () => { S.q.showUnknownAge = true; store.set("q", S.q); renderList(base, title); });
   $("#hideUnknown")?.addEventListener("click", () => { S.q.showUnknownAge = false; store.set("q", S.q); renderList(base, title); });
-  $("#qfClear")?.addEventListener("click", () => { S.qf = { facets: [], companies: [] }; renderList(base, title); });
+  $("#qfClear")?.addEventListener("click", () => {
+    S.qf = { facets: [], companies: [] };
+    S.q = { ...S.q, text: "", companies: [], tags: [], contract: "", onlyRates: false };
+    store.set("q", S.q); renderList(base, title);
+  });
+  $("#view").querySelectorAll("[data-cond]").forEach((b) => (b.onclick = () => {
+    conds[+b.dataset.cond].drop();
+    store.set("q", S.q); store.set("profile", S.profile); renderList(base, title);
+  }));
   $("#qfEdit")?.addEventListener("click", () => { location.hash = "#quick"; });
   fillPremiums($("#view"));
 }
