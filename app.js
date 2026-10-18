@@ -67,15 +67,34 @@ const FACETS = {
   b_spill: { label: "外溢", test: (p) => p.tags.includes("外溢") },
   b_death: { label: "身故", test: (p) => p.tags.includes("身故") },
 };
+// 幣別（依名稱與幣別欄位判斷）
+const curOf = (p) => {
+  const t = `${p.name} ${p.currency || ""}`;
+  if (/美元|美金|USD/.test(t)) return "美元";
+  if (/澳幣|澳元|AUD/.test(t)) return "澳幣";
+  if (/人民幣|CNY/.test(t)) return "人民幣";
+  if (/日圓|日幣|JPY|歐元|EUR|外幣|foreign/.test(t)) return "外幣";
+  return "新台幣";
+};
+Object.assign(FACETS, {
+  m_twd: { label: "新台幣", test: (p) => p._cur === "新台幣" },
+  m_usd: { label: "美元", test: (p) => p._cur === "美元" },
+  m_aud: { label: "澳幣", test: (p) => p._cur === "澳幣" },
+  m_cny: { label: "人民幣", test: (p) => p._cur === "人民幣" },
+  m_other: { label: "其他外幣", test: (p) => p._cur === "外幣" },
+  m_fx: { label: "外幣保單", test: (p) => p._cur !== "新台幣" },
+});
+
 const QF_GROUPS = [
   ["險種", ["k_health", "k_accident", "k_life", "k_annuity", "k_invest"]],
   ["期間", ["t_1y", "t_term", "t_life"]],
   ["主約／附約", ["c_main", "c_rider"]],
   ["實支實付", ["d_yes", "d_no"]],
+  ["幣別", ["m_twd", "m_usd", "m_aud", "m_cny", "m_other"]],
 ];
 const QF_COVER = ["b_reimb", "b_deduct", "b_either", "b_hosp", "b_daily", "b_surgery", "b_cancer", "b_lump", "b_ci", "b_cii", "b_si", "b_ltc",
   "b_dis", "b_waiver", "b_mom", "b_dental", "b_abroad", "b_acc", "b_travel", "b_disins", "b_accmed", "b_spill", "b_death"];
-const HOT = [["實支實付", ["b_reimb"]], ["癌症一次金", ["b_cancer", "b_lump"]], ["重大傷病", ["b_cii"]], ["長照", ["b_ltc"]], ["失能", ["b_dis"]], ["住院日額", ["b_hosp", "b_daily"]]];
+const HOT = [["實支實付", ["b_reimb"]], ["癌症一次金", ["b_cancer", "b_lump"]], ["重大傷病", ["b_cii"]], ["長照", ["b_ltc"]], ["失能", ["b_dis"]], ["住院日額", ["b_hosp", "b_daily"]], ["外幣保單", ["m_fx"]], ["美元保單", ["m_usd"]]];
 const groupOf = (id) => (QF_GROUPS.find(([, ids]) => ids.includes(id)) || [null])[0];
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -84,6 +103,7 @@ const fmt = (n) => (typeof n === "number" ? n.toLocaleString("zh-TW") : n);
 const short = (p) => S.meta.companies[p.company]?.short || p.company;
 const mmdd = (iso) => (iso ? iso.slice(5).replace("-", "-") : "");
 const ym = (iso) => (iso ? iso.slice(0, 7).replace("-", "/") : "");
+const unitOf = (p) => (p._cur === "新台幣" ? "元" : p._cur === "外幣" ? "（外幣）" : " " + p._cur);
 const isClause = (p) => /批註|附加條款/.test(p.contract + p.name);
 
 const ICON_HEART = '<svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.5-9.3C1 8 3.4 4.5 7 4.5c2 0 3.6 1.1 5 3 1.4-1.9 3-3 5-3 3.6 0 6 3.5 4.5 7.2C19.5 16.4 12 21 12 21z"/></svg>';
@@ -98,6 +118,7 @@ async function load() {
   S.products.forEach((p) => {
     S.byId.set(p.id, p);
     p._t = `${p.name} ${p.benefits.join(" ")} ${p.category.join(" ")} ${p.tags.join(" ")} ${p.features.join(" ")}`;
+    p._cur = curOf(p);
     p._f = new Set(Object.keys(FACETS).filter((k) => FACETS[k].test(p)));
   });
   S.cmp = S.cmp.filter((id) => S.byId.has(id));
@@ -193,6 +214,7 @@ function card(p) {
   if (p.is_new) tags.push(`<span class="badge new">新 ${esc(mmdd(p.approval_date || p.first_seen))}</span>`);
   if (p.status === "停售") tags.push(`<span class="badge stop">停售${p.removed_on ? " " + esc(p.removed_on.slice(0, 7).replace("-", "/")) : ""}</span>`);
   if (/附約/.test(p.contract + p.name)) tags.push('<span class="badge rider">附約</span>');
+  if (p._cur !== "新台幣") tags.push(`<span class="badge fx">${esc(p._cur === "外幣" ? "外幣" : p._cur)}</span>`);
   p.tags.slice(0, 5).forEach((t) => tags.push(`<span class="badge">${esc(t)}</span>`));
   const age = p.age_min != null ? `${p.age_min}–${p.age_max} 歲` : "";
   const sel = S.cmp.includes(p.id);
@@ -215,7 +237,7 @@ async function fillPremiums(root) {
     const hits = lookup(await ratesFor(p), age, gender, term);
     if (!hits.length) continue;
     const min = hits.reduce((a, b) => (b.value < a.value ? b : a));
-    el.innerHTML = `${esc(age)}歲${gender === "M" ? "男" : "女"} <b>${fmt(min.value)}</b> 元起 <span class="note">${esc(min.term || "")}</span>`;
+    el.innerHTML = `${esc(age)}歲${gender === "M" ? "男" : "女"} <b>${fmt(min.value)}</b>${esc(unitOf(p))}起 <span class="note">${esc(min.term || "")}</span>`;
   }
 }
 
@@ -352,7 +374,7 @@ async function openDetail(id) {
         <dt>承保年齡</dt><dd>${esc(p.age_text || (p.age_min != null ? `${p.age_min}–${p.age_max} 歲` : "—"))}</dd>
         <dt>繳費年期</dt><dd>${esc(p.pay_period || "—")}</dd>
         <dt>繳費方式</dt><dd>${esc(p.pay_method || "—")}</dd>
-        <dt>幣別</dt><dd>${esc(p.currency || "—")}</dd>
+        <dt>幣別</dt><dd>${esc(p.currency && p.currency !== "foreign" ? p.currency : p._cur)}</dd>
         <dt>備查日期</dt><dd>${esc(p.approval_date || "—")}${p.approval_no ? `<br><span class="note">${esc(p.approval_no)}</span>` : ""}</dd>
         <dt>收錄日期</dt><dd>${esc(p.first_seen)}</dd>
         ${p.status === "停售" ? `<dt>銷售狀態</dt><dd><span class="badge stop">停售</span> ${p.removed_on ? esc(p.removed_on) + " 起停止銷售" : "已停止銷售"}</dd>` : ""}
@@ -390,7 +412,7 @@ function renderCalc(p, tables) {
       ${terms.length ? `<select id="cTerm"><option value="">全部年期</option>${terms.map((t) => `<option ${t === term ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>` : ""}
       <label>單位數</label><input id="cUnits" type="number" min="0" step="0.5" value="${esc(store.get("units", 1))}"></div>
     ${pf.age === "" ? '<span class="note">輸入年齡即可試算。</span>' : hits.length ? `
-      <table class="rate-table"><thead><tr><th>方案</th><th style="text-align:right">年繳保費（元）</th></tr></thead><tbody>
+      <table class="rate-table"><thead><tr><th>方案</th><th style="text-align:right">年繳保費（${esc(p._cur === "新台幣" ? "新台幣" : p._cur)}）</th></tr></thead><tbody>
       ${hits.map((h) => `<tr><td>${esc(h.label)}<br><span class="note">${esc(h.unit)}</span></td><td class="v">${fmt(Math.round(h.value * store.get("units", 1)))}</td></tr>`).join("")}
       </tbody></table>` : `<span class="note">費率表內沒有 ${esc(pf.age)} 歲${pf.gender === "M" ? "男性" : "女性"}的資料（可能不在承保年齡內）。</span>`}
     <details><summary class="note">看完整費率表（${tables.length} 張）</summary>${tables.map(fullTable).join("")}</details>
@@ -524,12 +546,12 @@ async function renderCompare() {
       <thead><tr><th></th>${items.map((p) => `<td>${esc(p.name)}<small>${esc(short(p))} · ${esc(p.code)}</small></td>`).join("")}</tr></thead>
       <tbody>
       ${row("保費試算", (p, i) => (pf.age === "" ? '<span class="note">請輸入年齡</span>' : !p.has_rates ? '<span class="note">無費率表</span>' : premiums[i].length
-        ? `<div class="${mins[i] === best && items.length > 1 ? "best" : ""}">${fmt(mins[i])} 元起</div>${premiums[i].slice(0, 6).map((h) => `<div class="note">${esc(h.label)}：${fmt(h.value)}</div>`).join("")}<div class="note">${esc(premiums[i][0].unit)}</div>`
+        ? `<div class="${mins[i] === best && items.length > 1 && items.every((x) => x._cur === p._cur) ? "best" : ""}">${fmt(mins[i])}${esc(unitOf(p))}起</div>${premiums[i].slice(0, 6).map((h) => `<div class="note">${esc(h.label)}：${fmt(h.value)}</div>`).join("")}<div class="note">${esc(premiums[i][0].unit)}</div>`
         : '<span class="note">不在承保範圍</span>'))}
       ${row("主附約", (p) => esc(p.contract || "—"))}
       ${row("承保年齡", (p) => esc(p.age_text || (p.age_min != null ? `${p.age_min}–${p.age_max} 歲` : "—")))}
       ${row("繳費年期", (p) => esc(p.pay_period || "—"))}
-      ${row("幣別", (p) => esc(p.currency || "—"))}
+      ${row("幣別", (p) => esc(p.currency && p.currency !== "foreign" ? p.currency : p._cur))}
       ${allTags.map((t) => row(esc(t), (p) => (p.tags.includes(t) ? '<span class="yes">✓</span>' : '<span class="no">—</span>'))).join("")}
       ${row("給付項目", (p) => esc(p.benefits.join("、") || "—"))}
       ${row("商品特色", (p) => p.features.map(esc).join("<br>") || "—")}
