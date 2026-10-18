@@ -265,3 +265,6 @@ details summary { cursor: pointer; }
 .cond:hover { background: var(--accent); color: #fff; }
 .empty .hints { margin-top: 14px; display: grid; gap: 8px; justify-items: center; }
 .empty .hints p { margin: 0; font-size: 14px; }
+.qgrid.g4 { grid-template-columns: repeat(4, 1fr); }
+.qgrid.g4 .qchip { font-size: 14px; padding: 8px 2px; }
+.qbody h4 .note { font-weight: 400; margin-left: 4px; letter-spacing: 0; }

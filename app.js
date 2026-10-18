@@ -91,7 +91,9 @@ const QF_GROUPS = [
   ["主約／附約", ["c_main", "c_rider"]],
   ["實支實付", ["d_yes", "d_no"]],
   ["幣別", ["m_twd", "m_usd", "m_aud", "m_cny", "m_other"]],
+  ["繳費年期", []],   // 載入資料後依實際年期填入
 ];
+const termLabel = (n) => (n === 0 ? "躉繳" : n === 1 ? "1年期" : `${n}年期`);
 const QF_COVER = ["b_reimb", "b_deduct", "b_either", "b_hosp", "b_daily", "b_surgery", "b_cancer", "b_lump", "b_ci", "b_cii", "b_si", "b_ltc",
   "b_dis", "b_waiver", "b_mom", "b_dental", "b_abroad", "b_acc", "b_travel", "b_disins", "b_accmed", "b_spill", "b_death"];
 const HOT = [["實支實付", ["b_reimb"]], ["癌症一次金", ["b_cancer", "b_lump"]], ["重大傷病", ["b_cii"]], ["長照", ["b_ltc"]], ["失能", ["b_dis"]], ["住院日額", ["b_hosp", "b_daily"]], ["外幣保單", ["m_fx"]], ["美元保單", ["m_usd"]]];
@@ -119,8 +121,18 @@ async function load() {
     S.byId.set(p.id, p);
     p._t = `${p.name} ${p.benefits.join(" ")} ${p.category.join(" ")} ${p.tags.join(" ")} ${p.features.join(" ")}`;
     p._cur = curOf(p);
-    p._f = new Set(Object.keys(FACETS).filter((k) => FACETS[k].test(p)));
   });
+  // 繳費年期：依資料中出現過的年期動態建立條件（0 = 躉繳）
+  const terms = [...new Set(S.products.flatMap((p) => p.pay_terms || []))].sort((a, b) => a - b);
+  const termIds = [];
+  for (const n of terms) {
+    const id = "y_" + n;
+    FACETS[id] = { label: termLabel(n), test: (p) => (p.pay_terms || []).includes(n) };
+    termIds.push(id);
+  }
+  const g = QF_GROUPS.find(([name]) => name === "繳費年期");
+  if (g) g[1] = termIds;
+  S.products.forEach((p) => { p._f = new Set(Object.keys(FACETS).filter((k) => FACETS[k].test(p))); });
   S.cmp = S.cmp.filter((id) => S.byId.has(id));
   const active = S.products.filter((p) => p.status !== "停售").length;
   const comps = Object.values(S.meta.companies).filter((c) => c.count > 0).length;
@@ -147,12 +159,15 @@ function lookup(tables, age, gender, term) {
       const v = row[i];
       if (v == null) return;
       if (gender && c.gender && c.gender !== gender) return;
-      if (term && c.term && c.term !== term) return;
+      if (term && c.term && termNum(c.term) !== termNum(term)) return;
       out.push({ label: c.label, term: c.term, value: v, unit: t.unit, page: t.page });
     });
   }
   return out;
 }
+const termNum = (t) => (/躉繳|一次繳/.test(t) ? 0 : parseInt(t, 10));
+/** 卡片保費用的繳費年期：速查只選一個年期時用它，否則用比較頁設定 */
+const activeTerm = () => { const ys = S.qf.facets.filter((f) => f.startsWith("y_")); return ys.length === 1 ? FACETS[ys[0]].label : S.profile.term; };
 function termsOf(tables) {
   const s = new Set();
   (tables || []).forEach((t) => t.columns.forEach((c) => c.term && s.add(c.term)));
@@ -252,7 +267,8 @@ function card(p) {
 }
 
 async function fillPremiums(root) {
-  const { age, gender, term } = S.profile;
+  const { age, gender } = S.profile;
+  const term = activeTerm();
   if (age === "") return;
   for (const el of root.querySelectorAll("[data-prem]")) {
     const p = S.byId.get(el.dataset.prem);
@@ -407,7 +423,7 @@ async function openDetail(id) {
         <dt>主附約</dt><dd>${esc(p.contract || "—")}</dd>
         <dt>險種</dt><dd>${esc(p.category.join("、") || "—")}</dd>
         <dt>承保年齡</dt><dd>${esc(p.age_text || (p.age_min != null ? `${p.age_min}–${p.age_max} 歲` : "—"))}</dd>
-        <dt>繳費年期</dt><dd>${esc(p.pay_period || "—")}</dd>
+        <dt>繳費年期</dt><dd>${esc(p.pay_period || ((p.pay_terms || []).length ? p.pay_terms.map(termLabel).join("、") : "—"))}</dd>
         <dt>繳費方式</dt><dd>${esc(p.pay_method || "—")}</dd>
         <dt>幣別</dt><dd>${esc(p.currency && p.currency !== "foreign" ? p.currency : p._cur)}</dd>
         <dt>備查日期</dt><dd>${esc(p.approval_date || "—")}${p.approval_no ? `<br><span class="note">${esc(p.approval_no)}</span>` : ""}</dd>
@@ -466,6 +482,9 @@ function quickBase() {
     (age == null || (p.age_min != null && age >= p.age_min && age <= p.age_max)));
 }
 
+const cn2n = (w) => { const d = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  if (w === "十") return 10; if (w[0] === "十") return 10 + d[w[1]]; if (w.endsWith("十")) return d[w[0]] * 10;
+  if (w.includes("十")) { const [a, b] = w.split("十"); return d[a] * 10 + d[b]; } return d[w] || 0; };
 /** 「查 實支實付 45歲 國泰」→ 速查條件 */
 function parseQuick(text) {
   const qf = { facets: [], companies: [] };
@@ -473,6 +492,10 @@ function parseQuick(text) {
   const rest = [];
   const labels = Object.entries(FACETS).map(([k, f]) => [k, f.label]).sort((a, b) => b[1].length - a[1].length);
   for (let tok of text.replace(/一筆金/g, "一次金").replace(/^查\s*/, "").split(/[\s,，、＋+]+/).filter(Boolean)) {
+    tok = tok.replace(/^([一二三四五六七八九十]{1,3})(?=年)/, (w) => String(cn2n(w)));
+    const ym = tok.match(/^(\d{1,2})\s*年(?:期|繳)?$/);
+    if (ym && FACETS["y_" + +ym[1]]) { qf.facets.push("y_" + +ym[1]); continue; }
+    if (/^(躉繳|一次繳)$/.test(tok) && FACETS.y_0) { qf.facets.push("y_0"); continue; }
     const m = tok.match(/^(\d{1,3})\s*歲?$/);
     if (m && +m[1] <= 110) { age = m[1]; continue; }
     const co = Object.entries(S.meta.companies).find(([, c]) => tok === c.short || tok === c.name || tok === c.short + "人壽");
@@ -522,7 +545,10 @@ function renderQuick() {
     <section class="qcard">
       <header><h2>② 險種、期間</h2><p>可複選，點了會顯示已選什麼；再點一次取消</p></header>
       <div class="qbody">${pickedLine()}
-        ${QF_GROUPS.map(([g, ids]) => `<h4>${g}</h4><div class="qgrid g${Math.min(ids.length, 3)}">${ids.map(chip).join("")}</div>`).join("")}
+        ${QF_GROUPS.map(([g, ids]) => {
+          const shownIds = g === "繳費年期" ? ids.filter((id) => sel.facets.has(id) || cnt([id]) >= 3) : ids;
+          return `<h4>${g}${g === "繳費年期" ? '<span class="note">（官網或 DM 有寫明年期的商品）</span>' : ""}</h4><div class="qgrid g${g === "繳費年期" ? 4 : Math.min(shownIds.length, 3)}">${shownIds.map(chip).join("")}</div>`;
+        }).join("")}
         <h4>被保險人</h4>${whoChip()}
       </div>${submit}
     </section>
@@ -569,7 +595,7 @@ async function renderCompare() {
   const pf = S.profile;
   $("#view").innerHTML = '<div class="empty">載入費率中…</div>';
   const tables = await Promise.all(items.map(ratesFor));
-  const premiums = items.map((p, i) => lookup(tables[i], pf.age, pf.gender, pf.term));
+  const premiums = items.map((p, i) => lookup(tables[i], pf.age, pf.gender, activeTerm()));
   const minOf = (h) => (h.length ? Math.min(...h.map((x) => x.value)) : null);
   const mins = premiums.map(minOf);
   const best = Math.min(...mins.filter((x) => x != null));
@@ -585,7 +611,7 @@ async function renderCompare() {
         : '<span class="note">不在承保範圍</span>'))}
       ${row("主附約", (p) => esc(p.contract || "—"))}
       ${row("承保年齡", (p) => esc(p.age_text || (p.age_min != null ? `${p.age_min}–${p.age_max} 歲` : "—")))}
-      ${row("繳費年期", (p) => esc(p.pay_period || "—"))}
+      ${row("繳費年期", (p) => esc((p.pay_terms || []).length ? p.pay_terms.map(termLabel).join("、") : p.pay_period || "—"))}
       ${row("幣別", (p) => esc(p.currency && p.currency !== "foreign" ? p.currency : p._cur))}
       ${allTags.map((t) => row(esc(t), (p) => (p.tags.includes(t) ? '<span class="yes">✓</span>' : '<span class="no">—</span>'))).join("")}
       ${row("給付項目", (p) => esc(p.benefits.join("、") || "—"))}
