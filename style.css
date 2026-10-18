@@ -268,3 +268,6 @@ details summary { cursor: pointer; }
 .qgrid.g4 { grid-template-columns: repeat(4, 1fr); }
 .qgrid.g4 .qchip { font-size: 14px; padding: 8px 2px; }
 .qbody h4 .note { font-weight: 400; margin-left: 4px; letter-spacing: 0; }
+.badge.cov { background: var(--card); border-color: var(--navy-2); color: var(--navy-2); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .badge.cov { border-color: var(--accent); color: var(--accent); } }
+:root[data-theme="dark"] .badge.cov { border-color: var(--accent); color: var(--accent); }

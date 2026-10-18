@@ -32,9 +32,10 @@ const FACETS = {
   k_annuity: { label: "年金", test: (p) => /年金/.test(p.name) },
   k_invest: { label: "投資型", test: (p) => /變額|萬能|投資型/.test(p.name) },
   // 期間
-  t_1y: { label: "一年期", test: (p) => /一年|1年期|１年/.test(p.name) || /^1\s*年/.test(p.pay_period) },
-  t_term: { label: "定期", test: (p) => /定期/.test(p.name) && !/一年/.test(p.name) },
-  t_life: { label: "終身", test: (p) => /終身/.test(p.name) },
+  t_1y: { label: "一年期", test: (p) => (p.coverage ? p.coverage.kind === "years" && p.coverage.n === 1 : /一年|1年期/.test(p.name)) },
+  t_term: { label: "定期（幾年）", test: (p) => (p.coverage ? p.coverage.kind === "years" && p.coverage.n > 1 : /定期/.test(p.name) && !/一年/.test(p.name)) },
+  t_age: { label: "保到某歲", test: (p) => p.coverage?.kind === "age" },
+  t_life: { label: "終身", test: (p) => (p.coverage ? p.coverage.kind === "life" : /終身/.test(p.name)) },
   // 主附約
   c_main: { label: "主約", test: (p) => !/附約|附加條款|批註/.test(p.contract + p.name) },
   c_rider: { label: "附約", test: (p) => /附約/.test(p.contract + p.name) },
@@ -87,12 +88,18 @@ Object.assign(FACETS, {
 
 const QF_GROUPS = [
   ["險種", ["k_health", "k_accident", "k_life", "k_annuity", "k_invest"]],
-  ["期間", ["t_1y", "t_term", "t_life"]],
+  ["保障期間", ["t_1y", "t_term", "t_age", "t_life"]],
   ["主約／附約", ["c_main", "c_rider"]],
   ["實支實付", ["d_yes", "d_no"]],
   ["幣別", ["m_twd", "m_usd", "m_aud", "m_cny", "m_other"]],
   ["繳費年期", []],   // 載入資料後依實際年期填入
 ];
+/** 保障期間的顯示文字 */
+const covText = (p) => {
+  const c = p.coverage;
+  if (!c) return "";
+  return c.kind === "life" ? "終身保障" : c.kind === "age" ? `保障至${c.n}歲` : c.n === 1 ? "一年期" : `保障${c.n}年`;
+};
 const termLabel = (n) => (n === 0 ? "躉繳" : n === 1 ? "1年期" : `${n}年期`);
 const QF_COVER = ["b_reimb", "b_deduct", "b_either", "b_hosp", "b_daily", "b_surgery", "b_cancer", "b_lump", "b_ci", "b_cii", "b_si", "b_ltc",
   "b_dis", "b_waiver", "b_mom", "b_dental", "b_abroad", "b_acc", "b_travel", "b_disins", "b_accmed", "b_spill", "b_death"];
@@ -252,6 +259,7 @@ function card(p) {
   if (p.is_new) tags.push(`<span class="badge new">新 ${esc(mmdd(p.approval_date || p.first_seen))}</span>`);
   if (p.status === "停售") tags.push(`<span class="badge stop">停售${p.removed_on ? " " + esc(p.removed_on.slice(0, 7).replace("-", "/")) : ""}</span>`);
   if (/附約/.test(p.contract + p.name)) tags.push('<span class="badge rider">附約</span>');
+  if (covText(p)) tags.push(`<span class="badge cov">${esc(covText(p))}</span>`);
   if (p._cur !== "新台幣") tags.push(`<span class="badge fx">${esc(p._cur === "外幣" ? "外幣" : p._cur)}</span>`);
   p.tags.slice(0, 5).forEach((t) => tags.push(`<span class="badge">${esc(t)}</span>`));
   const age = p.age_min != null ? `${p.age_min}–${p.age_max} 歲` : "";
@@ -423,6 +431,7 @@ async function openDetail(id) {
         <dt>主附約</dt><dd>${esc(p.contract || "—")}</dd>
         <dt>險種</dt><dd>${esc(p.category.join("、") || "—")}</dd>
         <dt>承保年齡</dt><dd>${esc(p.age_text || (p.age_min != null ? `${p.age_min}–${p.age_max} 歲` : "—"))}</dd>
+        <dt>保障期間</dt><dd>${esc(covText(p) || "—")}${p.extra?.coverage || p.extra?.coverage_pdf ? `<br><span class="note">${esc(p.extra.coverage || p.extra.coverage_pdf)}</span>` : ""}</dd>
         <dt>繳費年期</dt><dd>${esc(p.pay_period || ((p.pay_terms || []).length ? p.pay_terms.map(termLabel).join("、") : "—"))}</dd>
         <dt>繳費方式</dt><dd>${esc(p.pay_method || "—")}</dd>
         <dt>幣別</dt><dd>${esc(p.currency && p.currency !== "foreign" ? p.currency : p._cur)}</dd>
@@ -496,6 +505,7 @@ function parseQuick(text) {
     const ym = tok.match(/^(\d{1,2})\s*年(?:期|繳)?$/);
     if (ym && FACETS["y_" + +ym[1]]) { qf.facets.push("y_" + +ym[1]); continue; }
     if (/^(躉繳|一次繳)$/.test(tok) && FACETS.y_0) { qf.facets.push("y_0"); continue; }
+    if (/^(定期|定期險)$/.test(tok)) { qf.facets.push("t_term"); continue; }
     const m = tok.match(/^(\d{1,3})\s*歲?$/);
     if (m && +m[1] <= 110) { age = m[1]; continue; }
     const co = Object.entries(S.meta.companies).find(([, c]) => tok === c.short || tok === c.name || tok === c.short + "人壽");
@@ -611,6 +621,7 @@ async function renderCompare() {
         : '<span class="note">不在承保範圍</span>'))}
       ${row("主附約", (p) => esc(p.contract || "—"))}
       ${row("承保年齡", (p) => esc(p.age_text || (p.age_min != null ? `${p.age_min}–${p.age_max} 歲` : "—")))}
+      ${row("保障期間", (p) => esc(covText(p) || "—"))}
       ${row("繳費年期", (p) => esc((p.pay_terms || []).length ? p.pay_terms.map(termLabel).join("、") : p.pay_period || "—"))}
       ${row("幣別", (p) => esc(p.currency && p.currency !== "foreign" ? p.currency : p._cur))}
       ${allTags.map((t) => row(esc(t), (p) => (p.tags.includes(t) ? '<span class="yes">✓</span>' : '<span class="no">—</span>'))).join("")}
