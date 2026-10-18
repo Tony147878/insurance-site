@@ -141,6 +141,7 @@ function termsOf(tables) {
 /* ---------- 篩選 ---------- */
 function filtered(base) {
   const q = S.q;
+  S.unknownAgeHidden = 0;
   const words = q.text.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const age = S.profile.age === "" ? null : Number(S.profile.age);
   let list = base.filter((p) => {
@@ -152,7 +153,10 @@ function filtered(base) {
     if (q.contract === "附約" && !/附約/.test(p.contract + p.name)) return false;
     if (q.onlyRates && !p.has_rates) return false;
     if (!matchQf(p, S.qf)) return false;
-    if (age != null && p.age_min != null && (age < p.age_min || age > p.age_max)) return false;
+    if (age != null) {
+      if (p.age_min == null) { if (!q.showUnknownAge) { S.unknownAgeHidden++; return false; } }
+      else if (age < p.age_min || age > p.age_max) return false;
+    }
     if (words.length) {
       const hay = `${p.name} ${p.code} ${short(p)} ${p.tags.join(" ")} ${p.category.join(" ")} ${p.benefits.join(" ")}`.toLowerCase();
       if (!words.every((w) => hay.includes(w))) return false;
@@ -247,11 +251,15 @@ function renderList(base, title) {
   $("#view").innerHTML = `${toolbar()}
     ${title ? `<div class="count">${title}</div>` : ""}
     ${qfActive() ? `<div class="qf-bar"><span>速查條件：<b>${esc(qfLabel())}</b></span><button class="btn" id="qfEdit">修改</button><button class="btn" id="qfClear">清除</button></div>` : ""}
-    <div class="count">共 ${list.length.toLocaleString()} 筆${S.profile.age !== "" ? `（已依 ${esc(S.profile.age)} 歲可投保過濾）` : ""}</div>
+    <div class="count">共 ${list.length.toLocaleString()} 筆${S.profile.age !== "" ? `（${esc(S.profile.age)} 歲可投保）` : ""}
+      ${S.profile.age !== "" && S.unknownAgeHidden ? `<span class="note">・另有 ${S.unknownAgeHidden} 項官網未標示承保年齡，未列入</span> <button class="btn" id="showUnknown" style="padding:2px 8px;font-size:12px">顯示</button>` : ""}
+      ${S.profile.age !== "" && S.q.showUnknownAge ? `<button class="btn" id="hideUnknown" style="padding:2px 8px;font-size:12px">隱藏未標示年齡的商品</button>` : ""}</div>
     ${shown.length ? `<div class="grid" id="grid">${shown.map(card).join("")}</div>` : '<div class="empty">沒有符合條件的商品</div>'}
     ${list.length > S.limit ? '<button class="btn more" id="more">顯示更多</button>' : ""}`;
   bindToolbar(() => renderList(base, title));
   $("#more")?.addEventListener("click", () => { S.limit += 60; renderList(base, title); });
+  $("#showUnknown")?.addEventListener("click", () => { S.q.showUnknownAge = true; store.set("q", S.q); renderList(base, title); });
+  $("#hideUnknown")?.addEventListener("click", () => { S.q.showUnknownAge = false; store.set("q", S.q); renderList(base, title); });
   $("#qfClear")?.addEventListener("click", () => { S.qf = { facets: [], companies: [] }; renderList(base, title); });
   $("#qfEdit")?.addEventListener("click", () => { location.hash = "#quick"; });
   fillPremiums($("#view"));
@@ -356,7 +364,7 @@ function renderCalc(p, tables) {
 function quickBase() {
   const age = S.profile.age === "" ? null : Number(S.profile.age);
   return S.products.filter((p) => p.status !== "停售" && !isClause(p) &&
-    (age == null || p.age_min == null || (age >= p.age_min && age <= p.age_max)));
+    (age == null || (p.age_min != null && age >= p.age_min && age <= p.age_max)));
 }
 
 /** 「查 實支實付 45歲 國泰」→ 速查條件 */
@@ -408,7 +416,7 @@ function renderQuick() {
         <h4>熱門保障</h4>
         <div class="qgrid g2">${HOT.map(([l, ids], i) => `<button class="qchip" data-hot="${i}">${esc(l)}<small>${cnt(ids)}</small></button>`).join("")}</div>
         <form class="qtype" id="qtype"><input id="qtext" type="search" placeholder="直接打字，例如：實支實付 45歲" autocomplete="off"><button class="primary">查</button></form>
-        <p class="note">要組合條件（例如三家公司＋45 歲），往右滑複選 →${S.profile.age !== "" ? `<br>目前依 ${esc(S.profile.age)} 歲計算可投保數量` : ""}</p>
+        <p class="note">要組合條件（例如三家公司＋45 歲），往右滑複選 →${S.profile.age !== "" ? `<br>目前依 ${esc(S.profile.age)} 歲計算可投保數量（不含未標示年齡的商品）` : ""}</p>
       </div>
     </section>
     <section class="qcard">
