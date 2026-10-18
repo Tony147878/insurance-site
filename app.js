@@ -57,7 +57,7 @@ const FACETS = {
   // 只算以失能為主要保障的商品（壽險附帶的「完全失能保險金」、失能豁免不算）
   b_dis: { label: "失能", test: (p) => /失能/.test(p.name) || /失能(扶助|照護|生活|關懷|安養|年金|分期|照顧|補償)/.test(p._t) },
   b_waiver: { label: "豁免", test: (p) => p.tags.includes("豁免") },
-  b_mom: { label: "婦嬰", test: has(/婦|嬰|孕|產|媽咪|新生兒/) },
+  b_mom: { label: "婦嬰", test: has(/婦女|女性|嬰|孕|產婦|分娩|妊娠|媽咪|新生兒|母嬰/) },
   b_dental: { label: "牙齒", test: has(/牙/) },
   b_abroad: { label: "海外醫療", test: has(/海外|國外|突發疾病/) },
   b_acc: { label: "傷害險", test: (p) => /傷害保險|傷害險|意外/.test(p.name) },
