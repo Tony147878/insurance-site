@@ -1,5 +1,6 @@
 [hidden] { display: none !important; }
 :root {
+  --co0: #2e8b57; --co1: #2f6fd6; --co2: #1d3557; --co3: #c2414b; --co4: #2a9d8f; --co5: #9a3c8c;
   --navy: #1d3557;
   --navy-2: #24467a;
   --bg: #f3f5f8;
@@ -190,3 +191,42 @@ main { max-width: 1280px; margin: 0 auto; padding: 12px 16px 24px; }
 .rate-table.full td.v { font-weight: 400; }
 .rate-table tr.hl td { background: var(--new-bg); }
 details summary { cursor: pointer; }
+
+/* 速查 */
+.quick { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(300px, 1fr); gap: 14px; overflow-x: auto;
+  scroll-snap-type: x mandatory; padding-bottom: 8px; margin-inline: -16px; padding-inline: 16px; scroll-padding-inline: 16px; }
+@media (max-width: 700px) { .quick { grid-auto-columns: 86%; } }
+.qcard { scroll-snap-align: start; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  display: flex; flex-direction: column; min-width: 0; box-shadow: var(--shadow); }
+.qcard header { background: var(--navy-2); color: #fff; padding: 12px 16px; }
+.qcard header h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.qcard header p { margin: 2px 0 0; font-size: 12px; opacity: .8; }
+.qbody { padding: 12px 14px; display: grid; gap: 8px; align-content: start; flex: 1; }
+.qbody h4 { margin: 6px 0 0; font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: .5px; }
+.qgrid { display: grid; gap: 8px; }
+.qgrid.g2 { grid-template-columns: repeat(2, 1fr); }
+.qgrid.g3 { grid-template-columns: repeat(3, 1fr); }
+.qchip { background: var(--chip); border: 1.5px solid transparent; border-radius: 10px; padding: 9px 6px; font-size: 15px; font-weight: 600;
+  color: var(--text); cursor: pointer; display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 4px; line-height: 1.3; min-width: 0; }
+.qchip small { font-size: 12px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.qchip.on { background: var(--navy-2); color: #fff; }
+.qchip.on small { color: rgba(255,255,255,.8); }
+.qchip:focus-visible, .qbig:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.qchip.co { background: var(--card); }
+.qchip.c0 { border-color: var(--co0); } .qchip.c1 { border-color: var(--co1); } .qchip.c2 { border-color: var(--co2); }
+.qchip.c3 { border-color: var(--co3); } .qchip.c4 { border-color: var(--co4); } .qchip.c5 { border-color: var(--co5); }
+.qchip.co.on { background: var(--navy-2); color: #fff; }
+.qbig { background: var(--navy-2); color: #fff; border: 0; border-radius: 12px; padding: 14px; font-size: 18px; font-weight: 600; cursor: pointer; }
+.qbig small { font-size: 13px; opacity: .8; margin-left: 6px; }
+.qtype { display: flex; gap: 8px; margin-top: 6px; }
+.qtype input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); }
+.qpicked { font-size: 13px; color: var(--accent); background: var(--chip); border-radius: 8px; padding: 6px 10px; }
+.qsubmit { margin: 0 14px 14px; padding: 12px; font-size: 16px; font-weight: 600; border-radius: 12px; }
+.qbody .row input { width: 110px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); }
+.qf-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--chip); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 12px; margin-bottom: 10px; font-size: 14px; }
+.qf-bar span { flex: 1; min-width: 0; }
+.qf-bar .btn { padding: 4px 10px; font-size: 13px; }
+
+.card .ft .code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .ft span:last-child { flex: none; }

@@ -16,9 +16,67 @@ const S = {
   profile: store.get("profile", { age: "", gender: "M", term: "" }),
   q: { showStopped: false, ...store.get("q", { text: "", companies: [], tags: [], contract: "", onlyRates: false, hideClauses: true, sort: "new" }) },
   limit: 60,
+  qf: { facets: [], companies: [] },   // 速查條件（送出後套用到查詢結果）
+  qsel: { facets: new Set(), companies: new Set() },  // 速查卡片上正在選的
 };
 const MAX_CMP = 4;
 const TAGS = ["實支實付", "住院日額", "手術", "癌症", "重大疾病", "重大傷病", "特定傷病", "失能", "長照", "身故", "意外", "門診", "豁免", "滿期/還本", "年金", "投資型", "外溢"];
+
+/* ---------- 速查：分類條件（由名稱／給付項目／分類自動判斷） ---------- */
+const has = (re) => (p) => re.test(p._t);
+const FACETS = {
+  // 險種
+  k_health: { label: "醫療健康", test: has(/健康|醫療|癌|重大疾病|重大傷病|特定傷病|長期照顧|長照|手術|住院/) },
+  k_accident: { label: "傷害", test: has(/傷害|意外/) },
+  k_life: { label: "壽險", test: (p) => /壽險|終身保險|定期保險|養老|還本/.test(p.name) && !/健康|醫療|傷害/.test(p.name) },
+  k_annuity: { label: "年金", test: (p) => /年金/.test(p.name) },
+  k_invest: { label: "投資型", test: (p) => /變額|萬能|投資型/.test(p.name) },
+  // 期間
+  t_1y: { label: "一年期", test: (p) => /一年|1年期|１年/.test(p.name) || /^1\s*年/.test(p.pay_period) },
+  t_term: { label: "定期", test: (p) => /定期/.test(p.name) && !/一年/.test(p.name) },
+  t_life: { label: "終身", test: (p) => /終身/.test(p.name) },
+  // 主附約
+  c_main: { label: "主約", test: (p) => !/附約|附加條款|批註/.test(p.contract + p.name) },
+  c_rider: { label: "附約", test: (p) => /附約/.test(p.contract + p.name) },
+  // 實支實付
+  d_yes: { label: "有自負額", test: has(/自負額/) },
+  d_no: { label: "無自負額", test: (p) => /實支|實際支出|醫療費用/.test(p._t) && !/自負額/.test(p._t) },
+  // 保障
+  b_reimb: { label: "實支實付", test: (p) => p.tags.includes("實支實付") },
+  b_deduct: { label: "自負額", test: has(/自負額/) },
+  b_either: { label: "日額實支擇一", test: has(/擇一|擇優|較優|日額給付型.*實支|實支.*日額給付型/) },
+  b_hosp: { label: "住院", test: has(/住院/) },
+  b_daily: { label: "日額", test: has(/日額/) },
+  b_surgery: { label: "手術", test: (p) => p.tags.includes("手術") },
+  b_cancer: { label: "癌症", test: (p) => p.tags.includes("癌症") },
+  b_lump: { label: "一筆金", test: has(/一次金|一筆|整筆|一次給付|一次保險金/) },
+  b_ci: { label: "重大疾病", test: (p) => p.tags.includes("重大疾病") },
+  b_cii: { label: "重大傷病", test: (p) => p.tags.includes("重大傷病") },
+  b_si: { label: "特定傷病", test: (p) => p.tags.includes("特定傷病") },
+  b_ltc: { label: "長照", test: (p) => p.tags.includes("長照") },
+  // 只算以失能為主要保障的商品（壽險附帶的「完全失能保險金」、失能豁免不算）
+  b_dis: { label: "失能", test: (p) => /失能/.test(p.name) || /失能(扶助|照護|生活|關懷|安養|年金|分期|照顧|補償)/.test(p._t) },
+  b_waiver: { label: "豁免", test: (p) => p.tags.includes("豁免") },
+  b_mom: { label: "婦嬰", test: has(/婦|嬰|孕|產|媽咪|新生兒/) },
+  b_dental: { label: "牙齒", test: has(/牙/) },
+  b_abroad: { label: "海外醫療", test: has(/海外|國外|突發疾病/) },
+  b_acc: { label: "傷害險", test: (p) => /傷害保險|傷害險|意外/.test(p.name) },
+  b_travel: { label: "旅平險", test: (p) => /旅行|旅平|旅遊/.test(p.name) },
+  b_disins: { label: "失能險", test: (p) => /失能/.test(p.name) },
+  b_accmed: { label: "傷害醫療", test: has(/傷害醫療|意外醫療/) },
+  b_spill: { label: "外溢", test: (p) => p.tags.includes("外溢") },
+  b_death: { label: "身故", test: (p) => p.tags.includes("身故") },
+};
+const QF_GROUPS = [
+  ["險種", ["k_health", "k_accident", "k_life", "k_annuity", "k_invest"]],
+  ["期間", ["t_1y", "t_term", "t_life"]],
+  ["主約／附約", ["c_main", "c_rider"]],
+  ["實支實付", ["d_yes", "d_no"]],
+];
+const QF_COVER = ["b_reimb", "b_deduct", "b_either", "b_hosp", "b_daily", "b_surgery", "b_cancer", "b_lump", "b_ci", "b_cii", "b_si", "b_ltc",
+  "b_dis", "b_waiver", "b_mom", "b_dental", "b_abroad", "b_acc", "b_travel", "b_disins", "b_accmed", "b_spill", "b_death"];
+const HOT = [["實支實付", ["b_reimb"]], ["癌症一筆金", ["b_cancer", "b_lump"]], ["重大傷病", ["b_cii"]], ["長照", ["b_ltc"]], ["失能", ["b_dis"]], ["住院日額", ["b_hosp", "b_daily"]]];
+const groupOf = (id) => (QF_GROUPS.find(([, ids]) => ids.includes(id)) || [null])[0];
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -37,7 +95,11 @@ async function load() {
   const d = await res.json();
   S.meta = d.meta;
   S.products = d.products;
-  S.products.forEach((p) => S.byId.set(p.id, p));
+  S.products.forEach((p) => {
+    S.byId.set(p.id, p);
+    p._t = `${p.name} ${p.benefits.join(" ")} ${p.category.join(" ")} ${p.tags.join(" ")} ${p.features.join(" ")}`;
+    p._f = new Set(Object.keys(FACETS).filter((k) => FACETS[k].test(p)));
+  });
   S.cmp = S.cmp.filter((id) => S.byId.has(id));
   const active = S.products.filter((p) => p.status !== "停售").length;
   const comps = Object.values(S.meta.companies).filter((c) => c.count > 0).length;
@@ -89,6 +151,7 @@ function filtered(base) {
     if (q.contract === "主約" && !/主約/.test(p.contract)) return false;
     if (q.contract === "附約" && !/附約/.test(p.contract + p.name)) return false;
     if (q.onlyRates && !p.has_rates) return false;
+    if (!matchQf(p, S.qf)) return false;
     if (age != null && p.age_min != null && (age < p.age_min || age > p.age_max)) return false;
     if (words.length) {
       const hay = `${p.name} ${p.code} ${short(p)} ${p.tags.join(" ")} ${p.category.join(" ")} ${p.benefits.join(" ")}`.toLowerCase();
@@ -102,6 +165,22 @@ function filtered(base) {
   if (q.sort === "name") list.sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
   if (q.sort === "company") list.sort((a, b) => a.company.localeCompare(b.company) || key(b).localeCompare(key(a)));
   return list;
+}
+
+/** 速查條件：同一組（險種／期間…）內為「或」，不同組之間與每個保障項目為「且」；公司為「或」 */
+function matchQf(p, qf) {
+  if (qf.companies.length && !qf.companies.includes(p.company)) return false;
+  const groups = {};
+  for (const f of qf.facets) {
+    const g = groupOf(f);
+    if (g) (groups[g] = groups[g] || []).push(f);
+    else if (!p._f.has(f)) return false;
+  }
+  return Object.values(groups).every((fs) => fs.some((f) => p._f.has(f)));
+}
+const qfActive = () => S.qf.facets.length || S.qf.companies.length;
+function qfLabel() {
+  return [...S.qf.facets.map((f) => FACETS[f].label), ...S.qf.companies.map((c) => S.meta.companies[c].short)].join("、");
 }
 
 /* ---------- 卡片 ---------- */
@@ -167,11 +246,14 @@ function renderList(base, title) {
   const shown = list.slice(0, S.limit);
   $("#view").innerHTML = `${toolbar()}
     ${title ? `<div class="count">${title}</div>` : ""}
+    ${qfActive() ? `<div class="qf-bar"><span>速查條件：<b>${esc(qfLabel())}</b></span><button class="btn" id="qfEdit">修改</button><button class="btn" id="qfClear">清除</button></div>` : ""}
     <div class="count">共 ${list.length.toLocaleString()} 筆${S.profile.age !== "" ? `（已依 ${esc(S.profile.age)} 歲可投保過濾）` : ""}</div>
     ${shown.length ? `<div class="grid" id="grid">${shown.map(card).join("")}</div>` : '<div class="empty">沒有符合條件的商品</div>'}
     ${list.length > S.limit ? '<button class="btn more" id="more">顯示更多</button>' : ""}`;
   bindToolbar(() => renderList(base, title));
   $("#more")?.addEventListener("click", () => { S.limit += 60; renderList(base, title); });
+  $("#qfClear")?.addEventListener("click", () => { S.qf = { facets: [], companies: [] }; renderList(base, title); });
+  $("#qfEdit")?.addEventListener("click", () => { location.hash = "#quick"; });
   fillPremiums($("#view"));
 }
 
@@ -270,6 +352,106 @@ function renderCalc(p, tables) {
   $("#cUnits").addEventListener("change", (e) => { store.set("units", Math.max(0, parseFloat(e.target.value) || 1)); save(); });
 }
 
+/* ---------- 速查 ---------- */
+function quickBase() {
+  const age = S.profile.age === "" ? null : Number(S.profile.age);
+  return S.products.filter((p) => p.status !== "停售" && !isClause(p) &&
+    (age == null || p.age_min == null || (age >= p.age_min && age <= p.age_max)));
+}
+
+/** 「查 實支實付 45歲 國泰」→ 速查條件 */
+function parseQuick(text) {
+  const qf = { facets: [], companies: [] };
+  let age = null;
+  const rest = [];
+  const labels = Object.entries(FACETS).map(([k, f]) => [k, f.label]).sort((a, b) => b[1].length - a[1].length);
+  for (let tok of text.replace(/^查\s*/, "").split(/[\s,，、＋+]+/).filter(Boolean)) {
+    const m = tok.match(/^(\d{1,3})\s*歲?$/);
+    if (m && +m[1] <= 110) { age = m[1]; continue; }
+    const co = Object.entries(S.meta.companies).find(([, c]) => tok === c.short || tok === c.name || tok === c.short + "人壽");
+    if (co) { qf.companies.push(co[0]); continue; }
+    const hot = HOT.find(([l]) => l === tok);
+    if (hot) { qf.facets.push(...hot[1]); continue; }
+    let hit = false;
+    for (const [k, l] of labels) {
+      if (tok.includes(l)) { qf.facets.push(k); tok = tok.replace(l, ""); hit = true; }
+    }
+    if (tok.trim() && !hit) rest.push(tok);
+  }
+  return { qf: { facets: [...new Set(qf.facets)], companies: [...new Set(qf.companies)] }, age, rest: rest.join(" ") };
+}
+
+function goQuick(qf, opts = {}) {
+  S.qf = qf;
+  if (opts.age != null) { S.profile.age = String(opts.age); store.set("profile", S.profile); }
+  S.q.text = opts.text || "";
+  store.set("q", S.q);
+  location.hash = "#search";
+}
+
+function renderQuick() {
+  const base = quickBase();
+  const cnt = (ids) => base.filter((p) => ids.every((f) => p._f.has(f))).length;
+  const sel = S.qsel;
+  const chip = (id) => `<button class="qchip${sel.facets.has(id) ? " on" : ""}" data-qf="${id}">${esc(FACETS[id].label)}<small>${cnt([id])}</small></button>`;
+  const picked = () => [...[...sel.facets].map((f) => FACETS[f].label), ...[...sel.companies].map((c) => S.meta.companies[c].short)];
+  const pickedLine = () => (picked().length ? `<div class="qpicked">已選：${esc(picked().join("、"))}</div>` : "");
+  const submit = `<button class="primary qsubmit" data-qsubmit>送出查詢${picked().length ? `（${picked().length}）` : ""}</button>`;
+  const cos = Object.entries(S.meta.companies).filter(([, c]) => c.count > 0);
+  const newCount = base.filter((p) => p.is_new).length;
+  $("#view").innerHTML = `
+  <div class="quick" id="quick">
+    <section class="qcard">
+      <header><h2>快速查</h2><p>點一下直接看結果</p></header>
+      <div class="qbody">
+        <button class="qbig" data-new>新商品（60 天內）<small>${newCount}</small></button>
+        <h4>熱門保障</h4>
+        <div class="qgrid g2">${HOT.map(([l, ids], i) => `<button class="qchip" data-hot="${i}">${esc(l)}<small>${cnt(ids)}</small></button>`).join("")}</div>
+        <form class="qtype" id="qtype"><input id="qtext" type="search" placeholder="直接打字，例如：實支實付 45歲" autocomplete="off"><button class="primary">查</button></form>
+        <p class="note">要組合條件（例如三家公司＋45 歲），往右滑複選 →${S.profile.age !== "" ? `<br>目前依 ${esc(S.profile.age)} 歲計算可投保數量` : ""}</p>
+      </div>
+    </section>
+    <section class="qcard">
+      <header><h2>② 險種、期間</h2><p>可複選，點了會顯示已選什麼；再點一次取消</p></header>
+      <div class="qbody">${pickedLine()}
+        ${QF_GROUPS.map(([g, ids]) => `<h4>${g}</h4><div class="qgrid g${Math.min(ids.length, 3)}">${ids.map(chip).join("")}</div>`).join("")}
+        <h4>年齡</h4><div class="row"><input id="qAge" type="number" min="0" max="100" inputmode="numeric" placeholder="例如 45" value="${esc(S.profile.age)}"><span class="note">歲（只列出可投保的商品）</span></div>
+      </div>${submit}
+    </section>
+    <section class="qcard">
+      <header><h2>③ 保障</h2><p>可複選，選多個代表都要有</p></header>
+      <div class="qbody">${pickedLine()}<div class="qgrid g3">${QF_COVER.map(chip).join("")}</div></div>${submit}
+    </section>
+    <section class="qcard">
+      <header><h2>④ 公司</h2><p>可複選</p></header>
+      <div class="qbody">${pickedLine()}<div class="qgrid g3">${cos.map(([k, c], i) =>
+        `<button class="qchip co c${i % 6}${sel.companies.has(k) ? " on" : ""}" data-qco="${k}">${esc(c.short)}<small>${base.filter((p) => p.company === k).length}</small></button>`).join("")}</div></div>${submit}
+    </section>
+  </div>`;
+  const v = $("#view");
+  v.onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.qf) { sel.facets.has(b.dataset.qf) ? sel.facets.delete(b.dataset.qf) : sel.facets.add(b.dataset.qf); keepScroll(renderQuick); }
+    else if (b.dataset.qco) { sel.companies.has(b.dataset.qco) ? sel.companies.delete(b.dataset.qco) : sel.companies.add(b.dataset.qco); keepScroll(renderQuick); }
+    else if (b.dataset.hot) goQuick({ facets: HOT[+b.dataset.hot][1], companies: [] });
+    else if (b.hasAttribute("data-new")) { S.qf = { facets: [], companies: [] }; location.hash = "#new"; }
+    else if (b.hasAttribute("data-qsubmit")) goQuick({ facets: [...sel.facets], companies: [...sel.companies] });
+  };
+  $("#qtype").onsubmit = (e) => {
+    e.preventDefault();
+    const r = parseQuick($("#qtext").value);
+    goQuick(r.qf, { age: r.age, text: r.rest });
+  };
+  $("#qAge").onchange = (e) => { S.profile.age = e.target.value === "" ? "" : String(Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0))); store.set("profile", S.profile); keepScroll(renderQuick); };
+}
+function keepScroll(fn) {
+  const q = $("#quick"), x = q ? q.scrollLeft : 0, y = window.scrollY;
+  fn();
+  const q2 = $("#quick"); if (q2) q2.scrollLeft = x;
+  window.scrollTo(0, y);
+}
+
 /* ---------- 比較 ---------- */
 async function renderCompare() {
   const items = S.cmp.map((id) => S.byId.get(id)).filter(Boolean);
@@ -320,10 +502,11 @@ function renderCompanies() {
 
 /* ---------- 路由 ---------- */
 function route() {
-  const tab = (location.hash.match(/^#\/?(\w+)/) || [, "search"])[1];
+  const tab = (location.hash.match(/^#\/?(\w+)/) || [, "quick"])[1];
   document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   S.limit = 60;
-  if (tab === "new") renderList(S.products.filter((p) => p.is_new), "近 45 天新上架或新收錄");
+  if (tab === "quick") renderQuick();
+  else if (tab === "new") renderList(S.products.filter((p) => p.is_new), "近 60 天新上架或新收錄");
   else if (tab === "fav") renderList(S.products.filter((p) => S.favs.has(p.id)), S.favs.size ? "" : "尚無最愛：點卡片右上角的愛心加入");
   else if (tab === "compare") renderCompare();
   else if (tab === "companies") renderCompanies();

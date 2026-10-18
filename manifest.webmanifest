@@ -1,7 +1,7 @@
 {
   "name": "壽險商品查詢",
   "short_name": "壽險查詢",
-  "start_url": "./#search",
+  "start_url": "./#quick",
   "display": "standalone",
   "background_color": "#f3f5f8",
   "theme_color": "#1d3557",
