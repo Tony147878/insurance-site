@@ -49,7 +49,7 @@ const FACETS = {
   b_daily: { label: "日額", test: has(/日額/) },
   b_surgery: { label: "手術", test: (p) => p.tags.includes("手術") },
   b_cancer: { label: "癌症", test: (p) => p.tags.includes("癌症") },
-  b_lump: { label: "一筆金", test: has(/一次金|一筆|整筆|一次給付|一次保險金/) },
+  b_lump: { label: "一次金", test: has(/一次金|一筆|整筆|一次給付|一次保險金/) },
   b_ci: { label: "重大疾病", test: (p) => p.tags.includes("重大疾病") },
   b_cii: { label: "重大傷病", test: (p) => p.tags.includes("重大傷病") },
   b_si: { label: "特定傷病", test: (p) => p.tags.includes("特定傷病") },
@@ -75,7 +75,7 @@ const QF_GROUPS = [
 ];
 const QF_COVER = ["b_reimb", "b_deduct", "b_either", "b_hosp", "b_daily", "b_surgery", "b_cancer", "b_lump", "b_ci", "b_cii", "b_si", "b_ltc",
   "b_dis", "b_waiver", "b_mom", "b_dental", "b_abroad", "b_acc", "b_travel", "b_disins", "b_accmed", "b_spill", "b_death"];
-const HOT = [["實支實付", ["b_reimb"]], ["癌症一筆金", ["b_cancer", "b_lump"]], ["重大傷病", ["b_cii"]], ["長照", ["b_ltc"]], ["失能", ["b_dis"]], ["住院日額", ["b_hosp", "b_daily"]]];
+const HOT = [["實支實付", ["b_reimb"]], ["癌症一次金", ["b_cancer", "b_lump"]], ["重大傷病", ["b_cii"]], ["長照", ["b_ltc"]], ["失能", ["b_dis"]], ["住院日額", ["b_hosp", "b_daily"]]];
 const groupOf = (id) => (QF_GROUPS.find(([, ids]) => ids.includes(id)) || [null])[0];
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -365,7 +365,7 @@ function parseQuick(text) {
   let age = null;
   const rest = [];
   const labels = Object.entries(FACETS).map(([k, f]) => [k, f.label]).sort((a, b) => b[1].length - a[1].length);
-  for (let tok of text.replace(/^查\s*/, "").split(/[\s,，、＋+]+/).filter(Boolean)) {
+  for (let tok of text.replace(/一筆金/g, "一次金").replace(/^查\s*/, "").split(/[\s,，、＋+]+/).filter(Boolean)) {
     const m = tok.match(/^(\d{1,3})\s*歲?$/);
     if (m && +m[1] <= 110) { age = m[1]; continue; }
     const co = Object.entries(S.meta.companies).find(([, c]) => tok === c.short || tok === c.name || tok === c.short + "人壽");
