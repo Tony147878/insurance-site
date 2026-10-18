@@ -219,18 +219,62 @@ async function fillPremiums(root) {
   }
 }
 
+/* ---------- 被保險人（年齡、性別） ---------- */
+function whoChip() {
+  const pf = S.profile;
+  return pf.age === ""
+    ? `<button class="who empty" data-who><span class="who-ic">👤</span><span><b>設定被保險人</b><small>只看能保的商品、直接顯示保費</small></span><span class="who-go">›</span></button>`
+    : `<button class="who" data-who><span class="who-ic">👤</span><span><b>被保險人：${esc(pf.age)} 歲・${pf.gender === "M" ? "男" : "女"}</b><small>只列出可投保的商品，卡片顯示保費</small></span><span class="who-go">更改</span></button>`;
+}
+
+function openWho() {
+  const draft = { age: S.profile.age === "" ? 30 : Number(S.profile.age), gender: S.profile.gender || "M" };
+  const presets = [0, 5, 10, 18, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70];
+  const paint = () => {
+    $("#sheetBody").innerHTML = `
+      <div class="sheet-hd"><h2>被保險人<small>設定後會用在查詢、速查、比較和保費試算</small></h2>
+        <button class="icon-btn" id="closeSheet" aria-label="關閉">${ICON_X}</button></div>
+      <div class="sheet-bd who-sheet">
+        <div class="who-age">
+          <button class="who-step" data-step="-1" aria-label="減一歲">−</button>
+          <div class="who-num"><input id="whoAge" type="number" min="0" max="100" inputmode="numeric" value="${draft.age}" aria-label="年齡"><span>歲</span></div>
+          <button class="who-step" data-step="1" aria-label="加一歲">＋</button>
+        </div>
+        <div class="who-presets">${presets.map((a) => `<button class="qchip${a === draft.age ? " on" : ""}" data-age="${a}">${a}</button>`).join("")}</div>
+        <div class="who-gender">${[["M", "男"], ["F", "女"]].map(([g, l]) => `<button class="qchip${draft.gender === g ? " on" : ""}" data-g="${g}">${l}</button>`).join("")}</div>
+        <ul class="who-why">
+          <li>只列出這個年齡<b>可以投保</b>的商品</li>
+          <li>有費率表的商品，卡片上直接顯示<b>年繳保費</b></li>
+          <li>比較時，保費最便宜的會標成綠色</li>
+        </ul>
+        <div class="row" style="justify-content:flex-end">
+          ${S.profile.age !== "" ? '<button class="ghost" id="whoClear">不設定</button>' : ""}
+          <button class="primary" id="whoApply">套用</button>
+        </div>
+      </div>`;
+    const dlg = $("#sheet");
+    $("#closeSheet").onclick = () => dlg.close();
+    $("#whoAge").onchange = (e) => { draft.age = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)); paint(); };
+    $("#sheetBody").querySelectorAll("[data-step]").forEach((b) => (b.onclick = () => { draft.age = Math.max(0, Math.min(100, draft.age + Number(b.dataset.step))); paint(); }));
+    $("#sheetBody").querySelectorAll("[data-age]").forEach((b) => (b.onclick = () => { draft.age = Number(b.dataset.age); paint(); }));
+    $("#sheetBody").querySelectorAll("[data-g]").forEach((b) => (b.onclick = () => { draft.gender = b.dataset.g; paint(); }));
+    const done = () => { store.set("profile", S.profile); dlg.close(); const y = window.scrollY, q = $("#quick"), x = q ? q.scrollLeft : 0; route(); window.scrollTo(0, y); if ($("#quick")) $("#quick").scrollLeft = x; };
+    $("#whoApply").onclick = () => { S.profile.age = String(Math.max(0, Math.min(100, parseInt($("#whoAge").value, 10) || draft.age))); S.profile.gender = draft.gender; done(); };
+    $("#whoClear")?.addEventListener("click", () => { S.profile.age = ""; done(); });
+  };
+  paint();
+  const dlg = $("#sheet");
+  if (!dlg.open) dlg.showModal();
+}
+
 /* ---------- 畫面：查詢 / 新商品 / 最愛 ---------- */
-function toolbar(showSearch = true) {
+function toolbar(showSearch = true, showTerm = false) {
   const q = S.q, pf = S.profile;
   const comps = Object.entries(S.meta.companies).filter(([, c]) => c.count > 0);
   return `<div class="toolbar">
     ${showSearch ? `<div class="search"><input id="qText" type="search" placeholder="搜尋商品名稱、代碼、保障…" value="${esc(q.text)}">
       <button id="toggleF" class="${filterActive() ? "on" : ""}">篩選${filterActive() ? "•" : ""}</button></div>` : ""}
-    <div class="row">
-      <label for="pAge">我的條件</label><input id="pAge" type="number" min="0" max="100" inputmode="numeric" placeholder="年齡" value="${esc(pf.age)}">
-      <span class="seg" id="pGender"><button data-g="M" class="${pf.gender === "M" ? "on" : ""}">男</button><button data-g="F" class="${pf.gender === "F" ? "on" : ""}">女</button></span>
-      <select id="pTerm" aria-label="繳費年期"><option value="">全部年期</option>${["1年期", "5年期", "6年期", "10年期", "15年期", "20年期", "30年期"].map((t) => `<option ${pf.term === t ? "selected" : ""}>${t}</option>`).join("")}</select>
-    </div>
+    <div class="row">${whoChip()}${showTerm ? `<select id="pTerm" aria-label="繳費年期"><option value="">全部繳費年期</option>${["1年期", "5年期", "6年期", "10年期", "15年期", "20年期", "30年期"].map((t) => `<option ${pf.term === t ? "selected" : ""}>${t}</option>`).join("")}</select>` : ""}</div>
     <div class="filters" id="filters" hidden>
       <div><h4>公司</h4><div class="wrap">${comps.map(([k, c]) => `<button class="chip${q.companies.includes(k) ? " on" : ""}" data-company="${k}">${esc(c.short)} ${c.count}</button>`).join("")}</div></div>
       <div><h4>保障內容（全部符合）</h4><div class="wrap">${TAGS.map((t) => `<button class="chip${q.tags.includes(t) ? " on" : ""}" data-tag="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>
@@ -275,9 +319,7 @@ function bindToolbar(rerender) {
   const f = $("#filters");
   if (f && sessionStorage.getItem("fOpen") === "1") f.hidden = false;
   $("#toggleF")?.addEventListener("click", () => { f.hidden = !f.hidden; sessionStorage.setItem("fOpen", f.hidden ? "0" : "1"); });
-  $("#pAge").addEventListener("change", (e) => { S.profile.age = e.target.value === "" ? "" : String(Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0))); save(); });
-  $("#pGender").addEventListener("click", (e) => { const g = e.target.dataset.g; if (g) { S.profile.gender = g; save(); } });
-  $("#pTerm").addEventListener("change", (e) => { S.profile.term = e.target.value; save(); });
+  $("#pTerm")?.addEventListener("change", (e) => { S.profile.term = e.target.value; save(); });
   f?.addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
     const tog = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
@@ -412,18 +454,19 @@ function renderQuick() {
     <section class="qcard">
       <header><h2>快速查</h2><p>點一下直接看結果</p></header>
       <div class="qbody">
+        ${whoChip()}
         <button class="qbig" data-new>新商品（60 天內）<small>${newCount}</small></button>
         <h4>熱門保障</h4>
         <div class="qgrid g2">${HOT.map(([l, ids], i) => `<button class="qchip" data-hot="${i}">${esc(l)}<small>${cnt(ids)}</small></button>`).join("")}</div>
         <form class="qtype" id="qtype"><input id="qtext" type="search" placeholder="直接打字，例如：實支實付 45歲" autocomplete="off"><button class="primary">查</button></form>
-        <p class="note">要組合條件（例如三家公司＋45 歲），往右滑複選 →${S.profile.age !== "" ? `<br>目前依 ${esc(S.profile.age)} 歲計算可投保數量（不含未標示年齡的商品）` : ""}</p>
+        <p class="note">要組合條件（例如三家公司＋45 歲），往右滑複選 →${S.profile.age !== "" ? `<br>數字為 ${esc(S.profile.age)} 歲可投保的商品數（不含未標示年齡的商品）` : ""}</p>
       </div>
     </section>
     <section class="qcard">
       <header><h2>② 險種、期間</h2><p>可複選，點了會顯示已選什麼；再點一次取消</p></header>
       <div class="qbody">${pickedLine()}
         ${QF_GROUPS.map(([g, ids]) => `<h4>${g}</h4><div class="qgrid g${Math.min(ids.length, 3)}">${ids.map(chip).join("")}</div>`).join("")}
-        <h4>年齡</h4><div class="row"><input id="qAge" type="number" min="0" max="100" inputmode="numeric" placeholder="例如 45" value="${esc(S.profile.age)}"><span class="note">歲（只列出可投保的商品）</span></div>
+        <h4>被保險人</h4>${whoChip()}
       </div>${submit}
     </section>
     <section class="qcard">
@@ -439,7 +482,7 @@ function renderQuick() {
   const v = $("#view");
   v.onclick = (e) => {
     const b = e.target.closest("button");
-    if (!b) return;
+    if (!b || b.hasAttribute("data-who")) return;
     if (b.dataset.qf) { sel.facets.has(b.dataset.qf) ? sel.facets.delete(b.dataset.qf) : sel.facets.add(b.dataset.qf); keepScroll(renderQuick); }
     else if (b.dataset.qco) { sel.companies.has(b.dataset.qco) ? sel.companies.delete(b.dataset.qco) : sel.companies.add(b.dataset.qco); keepScroll(renderQuick); }
     else if (b.dataset.hot) goQuick({ facets: HOT[+b.dataset.hot][1], companies: [] });
@@ -451,7 +494,6 @@ function renderQuick() {
     const r = parseQuick($("#qtext").value);
     goQuick(r.qf, { age: r.age, text: r.rest });
   };
-  $("#qAge").onchange = (e) => { S.profile.age = e.target.value === "" ? "" : String(Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0))); store.set("profile", S.profile); keepScroll(renderQuick); };
 }
 function keepScroll(fn) {
   const q = $("#quick"), x = q ? q.scrollLeft : 0, y = window.scrollY;
@@ -476,7 +518,7 @@ async function renderCompare() {
   const best = Math.min(...mins.filter((x) => x != null));
   const allTags = TAGS.filter((t) => items.some((p) => p.tags.includes(t)));
   const row = (label, f) => `<tr><th>${label}</th>${items.map((p, i) => `<td>${f(p, i)}</td>`).join("")}</tr>`;
-  $("#view").innerHTML = `${toolbar(false)}
+  $("#view").innerHTML = `${toolbar(false, true)}
     <div class="count">比較 ${items.length} 個商品 · 保費依「我的條件」試算</div>
     <div class="cmp-wrap"><table class="cmp">
       <thead><tr><th></th>${items.map((p) => `<td>${esc(p.name)}<small>${esc(short(p))} · ${esc(p.code)}</small></td>`).join("")}</tr></thead>
@@ -546,6 +588,7 @@ function toggleCmp(id) {
 }
 
 document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-who]")) { openWho(); return; }
   const fav = e.target.closest("[data-fav]");
   if (fav) {
     e.stopPropagation();

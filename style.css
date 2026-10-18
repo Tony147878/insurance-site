@@ -230,3 +230,29 @@ details summary { cursor: pointer; }
 
 .card .ft .code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .ft span:last-child { flex: none; }
+
+/* 被保險人 */
+.who { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--card); border: 1.5px solid var(--accent);
+  border-radius: 12px; padding: 9px 12px; cursor: pointer; color: var(--text); }
+.who.empty { border-style: dashed; }
+.who > span:nth-child(2) { flex: 1; min-width: 0; display: grid; }
+.who b { font-size: 15px; }
+.who small { font-size: 12px; color: var(--muted); }
+.who-ic { font-size: 20px; }
+.who-go { color: var(--accent); font-size: 14px; white-space: nowrap; }
+.toolbar .row:has(.who) { flex-wrap: nowrap; }
+.toolbar .row .who { flex: 1; }
+.who-sheet { gap: 18px; }
+.who-age { display: flex; align-items: center; justify-content: center; gap: 18px; }
+.who-step { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--line); background: var(--chip); font-size: 26px; cursor: pointer; color: var(--text); }
+.who-num { display: flex; align-items: baseline; gap: 6px; }
+.who-num input { width: 110px; font-size: 44px; font-weight: 700; text-align: center; border: 0; border-bottom: 2px solid var(--accent); background: transparent;
+  font-variant-numeric: tabular-nums; padding: 0; }
+.who-num span { font-size: 18px; color: var(--muted); }
+.who-presets { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.who-presets .qchip { padding: 7px 0; font-size: 14px; }
+.who-gender { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.who-gender .qchip { font-size: 18px; padding: 12px; }
+.who-why { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; display: grid; gap: 4px; }
+.who-why b { color: var(--text); }
+@media (max-width: 420px) { .who-presets { grid-template-columns: repeat(5, 1fr); } }
